@@ -1,10 +1,9 @@
-import seaborn
 import numpy as np
 import matplotlib.pyplot as plt
-import matplotlib
 import random;  random.seed(348573985)
 from functools import lru_cache
-
+from pysat.solvers import Glucose3
+import copy
 
 #%% ------------------- GLOBAL SETTINGS  -------------------
 # Show_step() window size
@@ -19,8 +18,13 @@ STEP_TIME_RATE = 0.5 # each step equals to 0.5 TU
 # Slope of the Gaussian function used to calculate uncertainty over time
 c = 3
 
+# For the local activation criterion, a SAT solver is used. Any is good as long as it is possible to
+# enumerate its models.
+SAT_SOLVER = Glucose3()
+
 # The threshold used in the necessity criterion, (max_ImT, max_ImA).
 THRESHOLD = (0.6, 0.9)
+
 
 
 #%% ------------------- DATA STRUCTURES & TIME -------------------
@@ -83,6 +87,39 @@ class Area():
         for i in self.cells:
             _Board[i] = 0 # Measures the area, clearing all uncertainty within.
         return 
+    
+    # Given a set of nodes, activates all of their associated areas.
+    def Activate_setNodes(nodes):
+        visited_areas = []
+        for n in nodes:
+            for i in Area.NodesRelations[n]:
+                if i not in visited_areas:
+                    visited_areas.append(i) # Mark actual area as counted
+                    i.Activate()
+                    
+    # Main heuristic to get the benefit of activating a set of nodes.
+    @classmethod
+    def Get_Benefit_from_Combination(nodes): # nodes == [ID1, ID2, ID3, ...]
+        visited_areas = []
+        sum_uvalues = 0
+        sum_nCells = 0
+        for n in nodes:
+            for i in Area.NodesRelations[n]:
+                if i not in visited_areas:
+                    visited_areas.append(i) # Mark actual area as counted
+                    sum_uvalues += i.Umean * len(i.cells) # mean = sum(uval)/len(uval) -> sum(uval) = mean*len(uval)
+                    sum_nCells  += len(i.cells)
+                     
+        return sum_uvalues / sum_nCells # benefit = mean(Uncertainty_across_all_covered_areas)
+                    
+    # Main heuristic to get the cost of activating a set of nodes.
+    @classmethod
+    def Get_Cost_from_Combination(nodes):
+        cost = len(nodes)
+        max_bat_usage = Area.Nodes.index(max(Area.Nodes))
+        if max_bat_usage in nodes: # Penalty for using the most used node.
+            cost += len(Area.Nodes) / 2
+        return cost # cost = |nodes| + is_most_used(nodes)*|nodes|/2
     
     def paint_area(self):
         '''
@@ -184,6 +221,44 @@ def Get_independent_sets(ar):
             SAT.append(ar[i])
     return SAT
 
+def Solve_SAT(ar):
+    sol = []
+    for i in ar:
+        SAT_SOLVER.add_clause(i)
+
+    for i in SAT_SOLVER.enum_models():
+        sol.append(i)
+    
+    SAT_SOLVER.__init__()
+    return sol
+
+def Activation_Combinations(list_cover): # list of nodes assign to each area in need. [[],[],[],...]
+    d = dict() # contains a hash to rename the nodes' IDs. {real_value: virtual_value}
+    cont = 1
+    for i in list_cover:
+        for j in i:
+            if j not in d.keys():
+                d[j] = cont
+                cont += 1
+
+    clause = copy.deepcopy(list_cover) # The clause that will be solved, using the renamed nodes.
+    
+    for i in range(len(clause)):
+        for j in range(len(clause[i])):
+            clause[i][j] = d[clause[i][j]]
+            
+    d = {v: k for k, v in d.items()} # Inverse of the map. {virtual_value: real_value}
+    sol_sat = Solve_SAT(clause) # List of all combinations which satisfy the necessity.
+
+    candidates = [] # list of candidate combinations.
+    for sol in sol_sat:
+        act = []
+        for i in sol:
+            if i > 0: # This node is set to true (it needs to be activated)
+                act.append(d[i]) # We append the real value to know which node it is.
+        candidates.append(act)
+    return candidates
+
 # Must also return if a battery has reaches 100%.
 # Must also turn on the areas associated with the activated nodes
 def Activation_Criterion(active_areas):
@@ -194,23 +269,33 @@ def Activation_Criterion(active_areas):
         SAT.append(i.nodes_assigned)
     
     # Filter the list, having only independent sets which need to be activated
-    SAT = Get_independent_sets(SAT)
+    SAT = Get_independent_sets(SAT) # May result in a speed-up in certain cases
     
     # get all combinations that solve the situation (SAT jr solver)
     # nodes: {1,2,3,4,...,i}
-    nodes_activated = []
+    nodes_activated = Activation_Combinations(SAT)
     
     # Per combination, there needs to be a procedure to choose the best one
-    
+    # Por cada combi hago el set y me quedo con aquella de mejor ratio b*c, y guardo la lista de areas/nodos que son
+    benefits = []
+    costs = []
+    for i in nodes_activated:
+        benefits.append(Area.Get_Benefit_from_Combination(i))
+        costs.append(Area.Get_Cost_from_Combination(i))
+        
+    # MISSING cost & get best ratio.
+    best_choice = 0
+    best_ratio = 0
+    for i in len(benefits):
+        if (benefits[i] / costs[i]) > best_ratio:
+            best_ratio = benefits[i] / costs[i]
+            best_choice = i
     
     # per node, activate all areas that it is associated with
-    for i in Area.Defined_Areas:
-        nodes = i.nodes_assigned
-        # Ahora ver si en los nodos asignados al area i figura cualquiera de los activados
-        # puedo concatenar las listas y si hay menos valores únicos que elementos, voilà
+    Area.Activate_setNodes(nodes_activated[best_choice])
     
     # take out those nodes' batteries.
-    for i in nodes_activated:
+    for i in nodes_activated[best_choice]:
         Area.Nodes[i] += 1 # consumes 1% of battery on usage
         if Area.Nodes[i] == 100:
             return False
@@ -236,13 +321,9 @@ def Visualize_Contour():
 #TODO: I may want to print the metrics; final status and through time.
 if __name__ == '__main__':
     load_instance('./Correccion/Settings.txt')
-    for i in Area.Defined_Areas:
-        print(i.nodes_assigned)
-    print(Area.NodesRelations)
-    
-    '''
+
     all_batteries_charged = True
-    while all_batteries_charged
+    while all_batteries_charged:
         areas_activated = []
         Area.Reset_Nodes_Stats() # Each node will have its statistics updated
         for i in Area.Defined_Areas:
@@ -257,5 +338,4 @@ if __name__ == '__main__':
             Visualize_Contour()
             
         Decay()
-    '''
     Visualize_Contour()
