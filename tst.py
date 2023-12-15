@@ -3,7 +3,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 # Cachear la función si se ejecuta siempre con los mismos valores
-f = lambda x, c : np.e ** -((x**2) / (2*(c**2)))
+f = lambda x, c : 1 - np.e ** -((x**2) / (2*(c**2)))
 
 c = 3
 l = []
@@ -15,8 +15,8 @@ l.append(f(10, c))
 
 x = [i for i in range(len(l))]
 
-#plt.plot(x, l)
-#plt.show()
+plt.plot(x, l)
+plt.show()
 #print(l)
 #print(x)
 

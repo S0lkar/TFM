@@ -17,4 +17,5 @@ plt.show()
 import matplotlib.pyplot as plt
 import numpy as np
 
-a = np.array([])
+a = np.array([1,2,40,4,5])
+print(a.argmax())

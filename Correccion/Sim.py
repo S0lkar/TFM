@@ -38,7 +38,7 @@ def Decay():
 @lru_cache(maxsize=None)
 def Steps2Uncertainty(n_steps):
     t = n_steps * STEP_TIME_RATE
-    return np.e ** -((t**2) / (2*(c**2)))
+    return 1 - np.e ** -((t**2) / (2*(c**2)))
 
 
 class Area():
@@ -98,7 +98,7 @@ class Area():
                     i.Activate()
                     
     # Main heuristic to get the benefit of activating a set of nodes.
-    @classmethod
+    #@classmethod
     def Get_Benefit_from_Combination(nodes): # nodes == [ID1, ID2, ID3, ...]
         visited_areas = []
         sum_uvalues = 0
@@ -113,11 +113,10 @@ class Area():
         return sum_uvalues / sum_nCells # benefit = mean(Uncertainty_across_all_covered_areas)
                     
     # Main heuristic to get the cost of activating a set of nodes.
-    @classmethod
+    #@classmethod
     def Get_Cost_from_Combination(nodes):
         cost = len(nodes)
-        max_bat_usage = Area.Nodes.index(max(Area.Nodes))
-        if max_bat_usage in nodes: # Penalty for using the most used node.
+        if Area.Nodes.argmax() in nodes: # Penalty for using the most used node.
             cost += len(Area.Nodes) / 2
         return cost # cost = |nodes| + is_most_used(nodes)*|nodes|/2
     
@@ -223,13 +222,13 @@ def Get_independent_sets(ar):
 
 def Solve_SAT(ar):
     sol = []
-    for i in ar:
+    for i in ar: # Add all clauses into the solver
         SAT_SOLVER.add_clause(i)
 
-    for i in SAT_SOLVER.enum_models():
+    for i in SAT_SOLVER.enum_models(): # enumerate models == get all satisfiable combinations
         sol.append(i)
     
-    SAT_SOLVER.__init__()
+    SAT_SOLVER.__init__() # Resets the solver
     return sol
 
 def Activation_Combinations(list_cover): # list of nodes assign to each area in need. [[],[],[],...]
@@ -286,7 +285,7 @@ def Activation_Criterion(active_areas):
     # MISSING cost & get best ratio.
     best_choice = 0
     best_ratio = 0
-    for i in len(benefits):
+    for i in range(len(benefits)):
         if (benefits[i] / costs[i]) > best_ratio:
             best_ratio = benefits[i] / costs[i]
             best_choice = i
@@ -325,7 +324,6 @@ if __name__ == '__main__':
     all_batteries_charged = True
     while all_batteries_charged:
         areas_activated = []
-        Area.Reset_Nodes_Stats() # Each node will have its statistics updated
         for i in Area.Defined_Areas:
             i.Uncertainty() # Updates relevant statistics values
             if i.Necessity_Criterion():
@@ -336,6 +334,6 @@ if __name__ == '__main__':
             
         if VERBOSE:
             Visualize_Contour()
-            
         Decay()
+    print(_T)
     Visualize_Contour()
